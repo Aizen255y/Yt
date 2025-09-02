@@ -26,15 +26,218 @@
       gap: 12px;
       flex-wrap: wrap;
     }
-    h1 {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 700;
-    }
+    h1 { margin: 0; font-size: 20px; font-weight: 700; }
     .hint { color: var(--muted); font-size: 13px; }
 
+    /* 2 cols default; 1 col <360px; 3 cols ≥600px; 4 cols ≥900px */
     #videoGrid {
       display: grid;
+      gap: 16px;
+      padding: 16px 16px 28px;
+      grid-template-columns: repeat(2, 1fr);
+    }
+    @media (max-width: 359px) { #videoGrid { grid-template-columns: 1fr; } }
+    @media (min-width: 600px) { #videoGrid { grid-template-columns: repeat(3, 1fr); } }
+    @media (min-width: 900px) { #videoGrid { grid-template-columns: repeat(4, 1fr); } }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+      transition: transform .12s ease, box-shadow .12s ease;
+    }
+    .card:has(.thumb:hover),
+    .card:has(.thumb:focus-visible) {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 26px rgba(0,0,0,0.45);
+    }
+
+    .thumb, .player {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      display: block;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .playBadge {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+    }
+    .playBadge::before {
+      content: "";
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.55);
+      border: 2px solid rgba(255,255,255,0.5);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+    }
+    .playBadge::after {
+      content: "";
+      position: absolute;
+      border-left: 18px solid white;
+      border-top: 12px solid transparent;
+      border-bottom: 12px solid transparent;
+      margin-left: 6px;
+    }
+
+    /* Optional: hide resume entirely. Remove 'display:none' if you want it back */
+    .resume { display: none; }
+    iframe { width: 100%; height: 100%; border: 0; display: block; }
+    .thumb:focus-visible { outline: 2px solid #6ea8fe; outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📺 My Videos</h1>
+    <span class="hint">Tap a thumbnail to play</span>
+  </header>
+
+  <main id="videoGrid" aria-live="polite"></main>
+
+  <script>
+    // 1) Your links only (no titles printed anywhere)
+    const videoLinks = [
+      "https://youtu.be/5AKXVO-PeX8?si=OxGp2ZVtfVd9g9Lk",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "https://youtu.be/vDDC6F6TwkU?si=4xpUci4rBCcHov4i",
+      "https://m.youtube.com/watch?v=hbj6jmVmwMg&list=PL_A4M5IAkMae_Hntw2myU3dHQ417zcxn6&index=1&pp=iAQB",
+    ];
+
+    // 2) Extract ID safely
+    function extractVideoId(url) {
+      if (!url) return null;
+      const patterns = [
+        /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+        /v=([a-zA-Z0-9_-]{11})/,
+        /embed\/([a-zA-Z0-9_-]{11})/,
+        /shorts\/([a-zA-Z0-9_-]{11})/
+      ];
+      for (const rx of patterns) {
+        const m = url.match(rx);
+        if (m && m[1]) return m[1];
+      }
+      return null;
+    }
+
+    const grid = document.getElementById("videoGrid");
+    const players = {};
+    let ytReady = false;
+    const pendingMounts = [];
+
+    // 3) Render
+    function render() {
+      const ids = videoLinks.map(extractVideoId).filter(Boolean);
+      ids.forEach(id => {
+        const card = document.createElement("section");
+        card.className = "card";
+        card.dataset.vid = id;
+
+        const thumb = document.createElement("div");
+        thumb.className = "thumb";
+        thumb.setAttribute("role", "button");
+        thumb.setAttribute("tabindex", "0");
+        thumb.setAttribute("aria-label", "Play video");
+
+        const img = document.createElement("img");
+        img.loading = "lazy";
+        img.src = `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+        img.onerror = () => { img.src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`; };
+        thumb.appendChild(img);
+
+        const badge = document.createElement("div");
+        badge.className = "playBadge";
+        thumb.appendChild(badge);
+
+        const resume = document.createElement("div");
+        resume.className = "resume"; // hidden by CSS; still used to store text if you re-enable it
+        const saved = parseFloat(localStorage.getItem("video-" + id) || "0");
+        if (saved > 1) resume.textContent = "Resume: " + formatTime(saved);
+
+        const activate = () => mountPlayer(card, id, resume);
+        thumb.addEventListener("click", activate);
+        thumb.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); }
+        });
+
+        card.append(thumb, resume);
+        grid.appendChild(card);
+      });
+    }
+
+    // 4) Mount player
+    function mountPlayer(cardEl, id, resumeEl) {
+      const host = document.createElement("div");
+      host.className = "player";
+      const domId = `player-${id}-${Math.random().toString(36).slice(2,10)}`;
+      host.id = domId;
+
+      const thumbEl = cardEl.querySelector(".thumb");
+      if (thumbEl) thumbEl.replaceWith(host);
+
+      const start = Math.floor(parseFloat(localStorage.getItem("video-" + id) || "0"));
+
+      const mount = () => {
+        players[id] = new YT.Player(domId, {
+          videoId: id,
+          playerVars: { start: start > 0 ? start : 0, rel: 0, modestbranding: 1 },
+          events: {
+            onStateChange: (evt) => {
+              if (evt.data === YT.PlayerState.PAUSED || evt.data === YT.PlayerState.ENDED) {
+                const t = evt.target.getCurrentTime();
+                localStorage.setItem("video-" + id, t);
+                if (resumeEl) resumeEl.textContent = t > 1 ? "Resume: " + formatTime(t) : "";
+              }
+            }
+          }
+        });
+      };
+
+      if (ytReady && window.YT && window.YT.Player) {
+        mount();
+      } else {
+        pendingMounts.push(mount);
+        loadYTApiOnce();
+      }
+    }
+
+    // 5) Load YT API once
+    let apiInjected = false;
+    function loadYTApiOnce() {
+      if (apiInjected) return;
+      apiInjected = true;
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(tag);
+    }
+    window.onYouTubeIframeAPIReady = function() {
+      ytReady = true;
+      while (pendingMounts.length) pendingMounts.shift()();
+    };
+
+    function formatTime(s) {
+      s = Math.floor(s);
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      return (h ? h + ":" : "") + (h ? String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0");
+    }
+
+    // Kickoff
+    render();
+  </script>
+</body>
+</html>      display: grid;
       gap: 16px;
       padding: 16px 16px 28px;
       grid-template-columns: repeat(2, 1fr);
