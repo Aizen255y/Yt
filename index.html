@@ -5,36 +5,134 @@
   <title>My YouTube Gallery</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root {
-      --bg: #0f0f0f;
-      --card: #1a1a1a;
-      --text: #eaeaea;
-      --muted: #b5b5b5;
-      --radius: 14px;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font: 15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    }
-    header {
-      padding: 22px 18px 6px;
-      display: flex;
-      align-items: baseline;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    h1 {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 700;
-    }
-    .hint { color: var(--muted); font-size: 13px; }
-
-    /* Grid: 1 col under 360px, 2 cols by default, 3 cols ≥600px, 4 cols ≥900px */
+    body { margin: 0; background: #0f0f0f; color: #fff; font-family: Arial, sans-serif; }
     #videoGrid {
+      display: grid;
+      gap: 16px;
+      padding: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    }
+    .card {
+      background: #1a1a1a;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .thumb, .player { width: 100%; aspect-ratio: 16/9; display: block; cursor: pointer; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .playBadge {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      background: rgba(0,0,0,0.3);
+      font-size: 40px; color: white;
+    }
+    .meta { padding: 10px; font-size: 14px; color: #ccc; }
+    iframe { width: 100%; height: 100%; border: none; }
+  </style>
+</head>
+<body>
+  <h1 style="padding:16px;">📺 My Videos</h1>
+  <main id="videoGrid"></main>
+
+  <script>
+    // === Put your videos here: each entry has a 'url' and a 'title' ===
+    const videoLinks = [
+      { 
+        url: "https://youtu.be/5AKXVO-PeX8?si=OxGp2ZVtfVd9g9Lk", 
+        title: "Sample Tech Talk" // 👈 change this title
+      },
+      { 
+        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", 
+        title: "Never Gonna Give You Up" // 👈 change this title
+      },
+      { 
+        url: "https://m.youtube.com/watch?v=hbj6jmVmwMg", 
+        title: "Funny Puppet Clip" // 👈 change this title
+      },
+      // add more like: { url: "LINK_HERE", title: "YOUR_TITLE_HERE" }
+    ];
+
+    function extractVideoId(url) {
+      const patterns = [
+        /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+        /v=([a-zA-Z0-9_-]{11})/,
+        /embed\/([a-zA-Z0-9_-]{11})/,
+        /shorts\/([a-zA-Z0-9_-]{11})/
+      ];
+      for (const rx of patterns) {
+        const m = url.match(rx);
+        if (m && m[1]) return m[1];
+      }
+      return null;
+    }
+
+    const grid = document.getElementById("videoGrid");
+
+    function render() {
+      videoLinks.forEach(video => {
+        const id = extractVideoId(video.url);
+        if (!id) return;
+
+        const card = document.createElement("section");
+        card.className = "card";
+        card.dataset.vid = id;
+
+        // Thumbnail
+        const thumb = document.createElement("div");
+        thumb.className = "thumb";
+        thumb.innerHTML = `
+          <img src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" alt="${video.title}">
+          <div class="playBadge">▶</div>
+        `;
+        thumb.addEventListener("click", () => mountPlayer(card, id));
+
+        // Meta (title + resume info)
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const saved = parseFloat(localStorage.getItem("video-" + id) || "0");
+        meta.textContent = video.title + (saved > 1 ? " • Resume: " + formatTime(saved) : "");
+
+        card.append(thumb, meta);
+        grid.appendChild(card);
+      });
+    }
+
+    function mountPlayer(cardEl, id) {
+      const playerDiv = document.createElement("div");
+      playerDiv.className = "player";
+      playerDiv.id = "player-" + id;
+
+      const thumbEl = cardEl.querySelector(".thumb");
+      if (thumbEl) thumbEl.replaceWith(playerDiv);
+
+      const saved = Math.floor(parseFloat(localStorage.getItem("video-" + id) || "0"));
+      new YT.Player(playerDiv.id, {
+        videoId: id,
+        playerVars: { start: saved > 0 ? saved : 0, rel: 0, modestbranding: 1 },
+        events: {
+          onStateChange: evt => {
+            if (evt.data === YT.PlayerState.PAUSED || evt.data === YT.PlayerState.ENDED) {
+              const t = evt.target.getCurrentTime();
+              localStorage.setItem("video-" + id, t);
+            }
+          }
+        }
+      });
+    }
+
+    function formatTime(s) {
+      s = Math.floor(s);
+      const m = Math.floor(s / 60), sec = s % 60;
+      return m + ":" + String(sec).padStart(2, "0");
+    }
+
+    // Load YT API
+    let tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+    window.onYouTubeIframeAPIReady = render;
+  </script>
+</body>
+</html>    #videoGrid {
       display: grid;
       gap: 16px;
       padding: 16px 16px 28px;
