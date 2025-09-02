@@ -5,36 +5,298 @@
   <title>My YouTube Gallery</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { margin: 0; background: #0f0f0f; color: #fff; font-family: Arial, sans-serif; }
+    :root {
+      --bg: #0f0f0f;
+      --card: #1a1a1a;
+      --text: #eaeaea;
+      --muted: #b5b5b5;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    header {
+      padding: 22px 18px 6px;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .hint { color: var(--muted); font-size: 13px; }
+
+    /* Grid: 1 col under 360px, 2 cols by default, 3 cols ≥600px, 4 cols ≥900px */
     #videoGrid {
       display: grid;
       gap: 16px;
-      padding: 16px;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      padding: 16px 16px 28px;
+      grid-template-columns: repeat(2, 1fr);
     }
+    @media (max-width: 359px) {
+      #videoGrid { grid-template-columns: 1fr; }
+    }
+    @media (min-width: 600px) {
+      #videoGrid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (min-width: 900px) {
+      #videoGrid { grid-template-columns: repeat(4, 1fr); }
+    }
+
     .card {
-      background: #1a1a1a;
-      border-radius: 12px;
+      background: var(--card);
+      border-radius: var(--radius);
       overflow: hidden;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+      transition: transform .12s ease, box-shadow .12s ease;
     }
-    .thumb, .player { width: 100%; aspect-ratio: 16/9; display: block; cursor: pointer; }
-    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .card:has(.thumb:hover),
+    .card:has(.thumb:focus-visible) {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 26px rgba(0,0,0,0.45);
+    }
+
+    .thumb, .player {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      display: block;
+      overflow: hidden;
+    }
+    .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
     .playBadge {
-      position: absolute; inset: 0; display: grid; place-items: center;
-      background: rgba(0,0,0,0.3);
-      font-size: 40px; color: white;
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
     }
-    .meta { padding: 10px; font-size: 14px; color: #ccc; }
-    iframe { width: 100%; height: 100%; border: none; }
+    .playBadge::before {
+      content: "";
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.55);
+      border: 2px solid rgba(255,255,255,0.5);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+    }
+    .playBadge::after {
+      content: "";
+      position: absolute;
+      border-left: 18px solid white;
+      border-top: 12px solid transparent;
+      border-bottom: 12px solid transparent;
+      margin-left: 6px;
+    }
+
+    .meta {
+      padding: 10px 12px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .id {
+      font-size: 12px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .resume {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+    }
+
+    /* Tap target */
+    .thumb { cursor: pointer; }
+    .thumb:focus-visible { outline: 2px solid #6ea8fe; outline-offset: 2px; }
   </style>
 </head>
 <body>
-  <h1 style="padding:16px;">📺 My Videos</h1>
-  <main id="videoGrid"></main>
+  <header>
+    <h1>📺 My Videos</h1>
+    <span class="hint">Tap a thumbnail to play • Auto-resume enabled</span>
+  </header>
+
+  <main id="videoGrid" aria-live="polite"></main>
 
   <script>
-    // === Put your videos here: each entry has a 'url' and a 'title' ===
+    // === 1) Add your YouTube links here ===
+    const videoLinks = [
+      "https://youtu.be/5AKXVO-PeX8?si=OxGp2ZVtfVd9g9Lk",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "https://m.youtube.com/watch?v=hbj6jmVmwMg&list=PL_A4M5IAkMae_Hntw2myU3dHQ417zcxn6&index=1&pp=iAQB",
+      // add more...
+    ];
+
+    // === 2) Robust ID extractor: supports youtu.be, watch, embed, shorts ===
+    function extractVideoId(url) {
+      if (!url) return null;
+      const patterns = [
+        /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+        /v=([a-zA-Z0-9_-]{11})/,
+        /embed\/([a-zA-Z0-9_-]{11})/,
+        /shorts\/([a-zA-Z0-9_-]{11})/
+      ];
+      for (const rx of patterns) {
+        const m = url.match(rx);
+        if (m && m[1]) return m[1];
+      }
+      return null;
+    }
+
+    // === 3) State ===
+    const grid = document.getElementById("videoGrid");
+    const players = {};              // id -> YT.Player
+    let ytReady = false;
+    const pendingMounts = [];        // queue mount requests until API ready
+
+    // === 4) Render cards with thumbnails (lazy) ===
+    function render() {
+      const ids = videoLinks.map(extractVideoId).filter(Boolean);
+      ids.forEach((id, idx) => {
+        const card = document.createElement("section");
+        card.className = "card";
+        card.dataset.vid = id;
+
+        // Thumbnail block
+        const thumb = document.createElement("div");
+        thumb.className = "thumb";
+        thumb.setAttribute("role", "button");
+        thumb.setAttribute("tabindex", "0");
+        thumb.setAttribute("aria-label", "Play video");
+
+        // Prefer maxres; fallback to hqdefault
+        const img = document.createElement("img");
+        img.loading = "lazy";
+        img.src = `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+        img.onerror = () => { img.src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`; };
+        thumb.appendChild(img);
+
+        const badge = document.createElement("div");
+        badge.className = "playBadge";
+        thumb.appendChild(badge);
+
+        // Meta row
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const idSpan = document.createElement("div");
+        idSpan.className = "id";
+        idSpan.textContent = id;
+        const resume = document.createElement("div");
+        resume.className = "resume";
+        const saved = parseFloat(localStorage.getItem("video-" + id) || "0");
+        if (saved > 1) resume.textContent = "Resume: " + formatTime(saved);
+        meta.append(idSpan, resume);
+
+        // Events: click/Enter to mount player
+        const activate = () => mountPlayer(card, id);
+        thumb.addEventListener("click", activate);
+        thumb.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); }
+        });
+
+        card.append(thumb, meta);
+        grid.appendChild(card);
+      });
+    }
+
+    // === 5) Mount YT Iframe Player into the card, starting from saved time ===
+    function mountPlayer(cardEl, id) {
+      // Replace thumb with a player host div
+      const host = document.createElement("div");
+      host.className = "player";
+      // Ensure a unique DOM id per card instance
+      const domId = `player-${id}-${crypto.randomUUID().slice(0,8)}`;
+      host.id = domId;
+
+      // Swap UI
+      const thumbEl = cardEl.querySelector(".thumb");
+      const metaEl = cardEl.querySelector(".meta .resume");
+      if (thumbEl) thumbEl.replaceWith(host);
+
+      const start = Math.floor(parseFloat(localStorage.getItem("video-" + id) || "0"));
+
+      const mount = () => {
+        players[id] = new YT.Player(domId, {
+          videoId: id,
+          playerVars: {
+            start: start > 0 ? start : 0,
+            rel: 0,
+            modestbranding: 1
+          },
+          events: {
+            onStateChange: (evt) => {
+              // Save on pause or end
+              if (evt.data === YT.PlayerState.PAUSED || evt.data === YT.PlayerState.ENDED) {
+                const t = evt.target.getCurrentTime();
+                localStorage.setItem("video-" + id, t);
+                if (metaEl) metaEl.textContent = t > 1 ? "Resume: " + formatTime(t) : "";
+              }
+            }
+          }
+        });
+      };
+
+      if (ytReady && window.YT && window.YT.Player) {
+        mount();
+      } else {
+        pendingMounts.push(mount);
+        loadYTApiOnce();
+      }
+    }
+
+    // === 6) Load YT Iframe API (idempotent) ===
+    let apiInjected = false;
+    function loadYTApiOnce() {
+      if (apiInjected) return;
+      apiInjected = true;
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(tag);
+    }
+    window.onYouTubeIframeAPIReady = function() {
+      ytReady = true;
+      // Flush any queued mounts
+      while (pendingMounts.length) pendingMounts.shift()();
+    };
+
+    // === 7) Utils ===
+    function formatTime(s) {
+      s = Math.floor(s);
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      return (h ? h + ":" : "") +
+             (h ? String(m).padStart(2, "0") : m) + ":" +
+             String(sec).padStart(2, "0");
+    }
+
+    // Init
+    render();
+  </script>
+</body>
+</html>    // === Put your videos here: each entry has a 'url' and a 'title' ===
     const videoLinks = [
       { 
         url: "https://youtu.be/5AKXVO-PeX8?si=OxGp2ZVtfVd9g9Lk", 
