@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>YouTube Grid — Custom Fullscreen</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --text: #fff;
+      --card: #151515;
+      --radius: 14px;
+      --gap: 24px;
+      --maxw: 1400px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    header { padding: 20px; text-align: center; }
+    h1 { margin: 0; font-size: 22px; }
+
+    /* 2 big players per row on desktop; 1 per row on small screens */
+    #videoGrid {
+      display: grid;
+      gap: var(--gap);
+      padding: 20px;
+      grid-template-columns: repeat(2, minmax(360px, 1fr));
+      max-width: var(--maxw);
+      margin: 0 auto 24px;
+    }
+    @media (max-width: 900px) { #videoGrid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 6px 20px rgba(0,0,0,.45);
+    }
+
+    /* 16:9 container; iframe fills it */
+    .player {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      overflow: hidden;
+      border-radius: var(--radius);
+    }
+    .player iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+    }
+
+    /* Custom fullscreen button (top-right) */
+    .fs-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 3;
+      border: 0;
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      backdrop-filter: saturate(120%) blur(2px);
+    }
+    .fs-btn:hover { background: rgba(0,0,0,0.75); }
+    .fs-btn:active { transform: translateY(1px); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📺 My Videos</h1>
+  </header>
+
+  <main id="videoGrid" aria-live="polite"></main>
+
+  <script>
+    // === Your video links (full YouTube URLs) ===
+    const videoLinks = [
+      "https://youtu.be/5AKXVO-PeX8",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "https://www.youtube.com/watch?v=hbj6jmVmwMg"
+    ];
+
+    // Extract ID from common formats
+    function extractVideoId(url) {
+      const patterns = [
+        /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+        /[?&]v=([a-zA-Z0-9_-]{11})/,
+        /embed\/([a-zA-Z0-9_-]{11})/,
+        /shorts\/([a-zA-Z0-9_-]{11})/ // shorts playable via embed too
+      ];
+      for (const rx of patterns) {
+        const m = url.match(rx);
+        if (m && m[1]) return m[1];
+      }
+      return null;
+    }
+
+    // Build a lean embed URL
+    function embedUrl(id) {
+      const qs = new URLSearchParams({
+        rel: "0",
+        modestbranding: "1",
+        playsinline: "1"
+      });
+      return `https://www.youtube.com/embed/${id}?${qs.toString()}`;
+    }
+
+    // Fullscreen helpers
+    function requestFS(el) {
+      const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen || el.mozRequestFullScreen;
+      if (fn) fn.call(el);
+    }
+    function exitFS() {
+      const fn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen || document.mozCancelFullScreen;
+      if (fn) fn.call(document);
+    }
+    function isFS() {
+      return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || document.mozFullScreenElement;
+    }
+
+    function makeCard(id) {
+      const card = document.createElement("section");
+      card.className = "card";
+
+      const player = document.createElement("div");
+      player.className = "player";
+
+      // Custom FS button
+      const btn = document.createElement("button");
+      btn.className = "fs-btn";
+      btn.type = "button";
+      btn.textContent = "⛶ Fullscreen";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // Prefer full-screening the wrapper (safe across origins)
+        if (!isFS()) requestFS(player); else exitFS();
+      });
+
+      const iframe = document.createElement("iframe");
+      iframe.src = embedUrl(id);
+      iframe.title = "YouTube video player";
+      // Native fullscreen support on the iframe too
+      iframe.setAttribute("allowfullscreen", "");
+      iframe.setAttribute("allow", "fullscreen; accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share");
+
+      player.appendChild(btn);
+      player.appendChild(iframe);
+      card.appendChild(player);
+      return card;
+    }
+
+    // Render grid
+    const grid = document.getElementById("videoGrid");
+    videoLinks.map(extractVideoId).filter(Boolean).forEach(id => grid.appendChild(makeCard(id)));
+  </script>
+</body>
+</html>
